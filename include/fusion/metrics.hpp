@@ -27,12 +27,15 @@ struct Totals {
     std::array<double, 3> sq_lat_bin{};
     std::array<long, 3> n_bin{};
     double seconds = 0;
+    double delay_sum = 0;  // time from entering the region to first being tracked
+    long delay_n = 0;
     void add(const Totals& o);
 };
 
 struct Summary {
     double rmse_lon, rmse_lat, rmse_vel, mean_nees;
     double lane_accuracy, coverage, false_tracks, id_switches_per_min;
+    double time_to_track;  // mean seconds a car is in the region before it has a track
     std::array<double, 3> rmse_lat_by_range;
 };
 
@@ -46,6 +49,9 @@ public:
 private:
     Totals totals_;
     std::map<int, int> last_track_;  // truth id -> track id it was last matched to
+    std::map<int, double> waiting_;  // truth id -> time it entered the region untracked
+    std::map<int, bool> seen_;       // truth ids already scored for time to track
+    double now_ = 0;
 };
 
 }  // namespace fusion

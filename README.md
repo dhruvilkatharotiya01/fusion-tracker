@@ -32,17 +32,19 @@ same drives with the same measurements, and is scored in the area both sensors c
 |---|---:|---:|---:|---:|---:|---:|
 | Radar only | 0.05 m | 0.23 m | 0.25 m/s | 3.4 | 0.03 | 1.8 /min |
 | Camera only | 1.16 m | 0.09 m | 1.16 m/s | 4.0 | 0.08 | 1.0 /min |
-| **Fused** | **0.06 m** | **0.07 m** | 0.27 m/s | 3.8 | 0.20 | 3.2 /min |
+| **Fused** | **0.05 m** | **0.07 m** | **0.21 m/s** | 3.5 | 0.07 | 1.8 /min |
 
 - Fused lateral error was lower than radar-only in **50 of 50** drives, and fused along-road error
   lower than camera-only in **50 of 50**.
 - **NEES** (normalised estimation error squared) checks that the filter's own uncertainty matches
   its real errors. For a 4-dimensional state it should average 4; all setups are close.
 - **False tracks** is the average number of confirmed tracks not following any car.
-- **The cost of fusion:** fused tracking has more false tracks and ID switches than radar alone,
-  and slightly worse velocity. I have not isolated the cause yet; likely parts are the camera's
-  own false detections and the extra association decisions per second. Lane assignment was above
-  99.5% in every setup, so the lateral gain matters for precision, not for basic lane assignment.
+- **What fusion still costs:** fused tracking has about twice as many false tracks as radar alone
+  (0.07 against 0.03), because it inherits the false tracks that each sensor's clutter creates.
+  Fusion-specific false tracks were fixed (see point 5 below). Lane assignment was above 99.5% in
+  every setup, so the lateral gain matters for precision, not for basic lane assignment.
+- **Time to track** was close to zero in every setup: radar picks cars up far beyond the scored
+  area, so stricter confirmation rules cost nothing here.
 
 ![Fused tracks against the truth](docs/trace.png)
 
@@ -73,11 +75,28 @@ most of the work.
 
    | | False tracks | ID switches |
    |---|---:|---:|
-   | Without merging | 0.87 | 24.0 /min |
-   | With merging | 0.20 | 3.2 /min |
+   | Without merging | 0.71 | 22.6 /min |
+   | With merging | 0.07 | 1.8 /min |
 
 4. **Tuning on the test data.** The motion noise was chosen on seed 1 so that NEES is close to 4
    (2.5 m/s² along the road, 1.0 m/s² across it). All numbers above come from seed 2.
+5. **Fusion added false tracks of its own.** The first published version had 0.20 false tracks and
+   3.2 ID switches a minute when fused, against 0.03 and 1.8 for radar alone. Sorting every false
+   track by how it started and what fed it showed that most began as radar clutter and were then
+   confirmed by camera detections of a real car nearby. The camera's range is so uncertain at
+   distance that such a detection can fall inside the clutter track's gate. A track now counts hits
+   and misses for confirmation only from the sensor that started it; other sensors still update
+   it. On the held-out seed, fused setup:
+
+   | | False tracks | ID switches | Velocity error |
+   |---|---:|---:|---:|
+   | Any sensor confirms | 0.20 | 3.2 /min | 0.27 m/s |
+   | Starting sensor confirms | 0.07 | 1.8 /min | 0.21 m/s |
+
+   On the development seed the velocity error moved the other way (0.25 to 0.29 m/s), so I do not
+   claim a velocity gain. A stricter 4-of-6 rule (`--confirm 4 6`) cuts false tracks further for
+   radar and fused tracking, but on the development seed it raised fused along-road error from 0.05 to 0.09 m,
+   so the default stays 3-of-5.
 
 ## How it works
 
@@ -87,8 +106,8 @@ most of the work.
 | Sensors | `src/sensors.cpp` | Polar measurements, field of view, detection probability, Poisson clutter |
 | Filter | `src/ekf.cpp` | Constant-velocity EKF, separate along-road and lateral process noise, analytic Jacobians, Joseph-form update |
 | Association | `src/assignment.cpp` | Chi-square gating, Hungarian algorithm with a cost for leaving a track or detection unassigned |
-| Tracks | `src/tracker.cpp` | 3-of-5 confirmation over scans that could see the track, deletion after 1 s without updates, duplicate merging |
-| Scoring | `src/metrics.cpp` | Truth-to-track matching, RMSE, NEES, lane accuracy, false tracks, ID switches |
+| Tracks | `src/tracker.cpp` | 3-of-5 confirmation by the sensor that started the track, over scans that could see it; deletion after 1 s without updates; duplicate merging |
+| Scoring | `src/metrics.cpp` | Truth-to-track matching, RMSE, NEES, lane accuracy, false tracks, ID switches, time to track |
 | Matrices | `include/fusion/matrix.hpp` | Fixed-size templates, enough for 4×4. Eigen would be the choice in production |
 
 Measurements are processed one sensor scan at a time, in time order, so the 20 Hz radar and 15 Hz
@@ -105,6 +124,8 @@ ctest --test-dir build --output-on-failure
 ```bash
 ./build/fusion_eval --runs 50 --seed 2
 ./build/fusion_eval --runs 50 --seed 2 --no-prune
+./build/fusion_eval --runs 50 --seed 2 --any-sensor-confirms
+./build/fusion_eval --runs 50 --seed 2 --confirm 4 6
 ./build/fusion_eval --runs 20 --seed 1 --q-long 4 --q-lat 1.5 --csv out/runs.csv
 ```
 
@@ -112,7 +133,8 @@ The figures come from `tools/plot_results.py` (needs matplotlib).
 
 The tests cover the matrix inverse, the Hungarian algorithm against brute force, the radar
 Jacobian against finite differences, filter consistency on a constant-velocity target (NEES near
-4), sensor field of view, car spacing in the simulator, duplicate merging, reproducibility, and
+4), sensor field of view, car spacing in the simulator, duplicate merging, that camera hits alone
+cannot confirm a radar clutter track, reproducibility, and
 that fusion beats each single sensor where that sensor is weak.
 
 ## Limitations

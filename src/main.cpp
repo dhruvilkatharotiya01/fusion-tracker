@@ -15,6 +15,7 @@ namespace {
 void usage() {
     std::puts("usage: fusion_eval [--runs N] [--duration S] [--seed N] [--csv FILE] [--trace FILE]\n"
               "                   [--q-long A] [--q-lat A] [--no-prune]\n"
+              "                   [--any-sensor-confirms] [--confirm HITS WINDOW]\n"
               "  --trace writes truth and fused tracks for the first run, for tools/plot_trace.py");
 }
 
@@ -37,6 +38,11 @@ int main(int argc, char** argv) {
         else if (arg == "--q-long" && has_value) cfg.motion.accel_long = std::atof(argv[++i]);
         else if (arg == "--q-lat" && has_value) cfg.motion.accel_lat = std::atof(argv[++i]);
         else if (arg == "--no-prune") cfg.prune_duplicates = false;
+        else if (arg == "--any-sensor-confirms") cfg.confirm_by_source = false;
+        else if (arg == "--confirm" && i + 2 < argc) {
+            cfg.confirm_hits = std::atoi(argv[++i]);
+            cfg.confirm_window = std::atoi(argv[++i]);
+        }
         else {
             usage();
             return arg == "--help" ? 0 : 2;
@@ -52,8 +58,8 @@ int main(int argc, char** argv) {
     std::vector<std::vector<Summary>> per_run(3);
     std::printf("%d runs x %.0f s, seed %llu, q_long %.2f, q_lat %.2f\n\n", runs, duration, seed,
                 cfg.motion.accel_long, cfg.motion.accel_lat);
-    std::printf("%-7s %8s %8s %8s %6s %6s %6s %7s %7s   lateral RMSE by range\n", "mode", "lon m",
-                "lat m", "vel m/s", "NEES", "lane", "cover", "false", "sw/min");
+    std::printf("%-7s %8s %8s %8s %6s %6s %6s %7s %7s %7s   lateral RMSE by range\n", "mode", "lon m",
+                "lat m", "vel m/s", "NEES", "lane", "cover", "false", "sw/min", "ttt s");
 
     for (int k = 0; k < 3; ++k) {
         Totals all;
@@ -80,9 +86,10 @@ int main(int argc, char** argv) {
                              s.false_tracks, s.id_switches_per_min);
         }
         const Summary s = summarize(all);
-        std::printf("%-7s %8.2f %8.2f %8.2f %6.1f %5.1f%% %5.1f%% %7.2f %7.2f   %.2f / %.2f / %.2f\n",
+        std::printf("%-7s %8.2f %8.2f %8.2f %6.1f %5.1f%% %5.1f%% %7.2f %7.2f %7.2f   %.2f / %.2f / %.2f\n",
                     mode_name(modes[k]), s.rmse_lon, s.rmse_lat, s.rmse_vel, s.mean_nees,
                     100 * s.lane_accuracy, 100 * s.coverage, s.false_tracks, s.id_switches_per_min,
+                    s.time_to_track,
                     s.rmse_lat_by_range[0], s.rmse_lat_by_range[1], s.rmse_lat_by_range[2]);
     }
     if (csv) std::fclose(csv);
@@ -96,5 +103,6 @@ int main(int argc, char** argv) {
     std::printf("\nfused lateral error below radar-only in %d of %d runs\n", better_lat, runs);
     std::printf("fused longitudinal error below camera-only in %d of %d runs\n", better_lon, runs);
     std::puts("lateral RMSE ranges: 5-30 m / 30-55 m / 55-80 m ahead. NEES should be near 4 if the filter is consistent.");
+    std::puts("ttt: time to track, mean seconds a car spends in the scored region before it has a confirmed track.");
     return 0;
 }

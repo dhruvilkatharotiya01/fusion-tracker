@@ -58,12 +58,13 @@ void Tracker::process(const std::vector<Detection>& scan, const SensorSpec& sens
     std::vector<bool> used(scan.size(), false);
     for (std::size_t i = 0; i < tracks_.size(); ++i) {
         Track& tr = tracks_[i];
+        const bool counts = !cfg_.confirm_by_source || tr.source == sensor.kind;
         if (match[i] >= 0) {
             apply(tr, scan[match[i]], sensor);
             used[match[i]] = true;
             tr.last_update = t;
-            record(tr, true);
-        } else if (in_view(sensor, tr.x(0, 0), tr.x(1, 0))) {
+            if (counts) record(tr, true);
+        } else if (counts && in_view(sensor, tr.x(0, 0), tr.x(1, 0))) {
             record(tr, false);  // only scans that could have seen the track count as misses
         }
     }
@@ -75,7 +76,7 @@ void Tracker::process(const std::vector<Detection>& scan, const SensorSpec& sens
 
     for (std::size_t j = 0; j < scan.size(); ++j) {
         if (used[j]) continue;
-        Track tr{next_id_++, {}, {}, t, t, false, {true}};
+        Track tr{next_id_++, {}, {}, t, t, false, {true}, sensor.kind};
         init_from_detection(scan[j], sensor, tr.x, tr.P);
         tracks_.push_back(tr);
     }

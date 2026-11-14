@@ -26,6 +26,8 @@ void Totals::add(const Totals& o) {
     id_switches += o.id_switches;
     steps += o.steps;
     seconds += o.seconds;
+    delay_sum += o.delay_sum;
+    delay_n += o.delay_n;
     for (std::size_t b = 0; b < 3; ++b) {
         sq_lat_bin[b] += o.sq_lat_bin[b];
         n_bin[b] += o.n_bin[b];
@@ -43,6 +45,7 @@ Summary summarize(const Totals& t) {
     s.coverage = t.truths ? static_cast<double>(t.matched) / t.truths : 0.0;
     s.false_tracks = t.steps ? static_cast<double>(t.false_tracks) / t.steps : 0.0;
     s.id_switches_per_min = t.seconds > 0 ? t.id_switches / (t.seconds / 60.0) : 0.0;
+    s.time_to_track = t.delay_n ? t.delay_sum / t.delay_n : 0.0;
     for (std::size_t b = 0; b < 3; ++b)
         s.rmse_lat_by_range[b] = t.n_bin[b] ? std::sqrt(t.sq_lat_bin[b] / t.n_bin[b])
                                             : std::numeric_limits<double>::quiet_NaN();
@@ -67,7 +70,17 @@ void Evaluator::add(const std::vector<Truth>& truths, const std::vector<Track>& 
         const Truth& tr = truths[i];
         if (!in_region(tr.x, tr.y)) continue;
         ++totals_.truths;
+        if (!seen_[tr.id] && !waiting_.count(tr.id)) waiting_[tr.id] = now_;
         if (match[i] < 0) continue;
+        if (auto w = waiting_.find(tr.id); w != waiting_.end()) {
+            // Cars already in the region when scoring starts are skipped.
+            if (now_ > 0) {
+                totals_.delay_sum += now_ - w->second;
+                ++totals_.delay_n;
+            }
+            waiting_.erase(w);
+            seen_[tr.id] = true;
+        }
         const Track& tk = tracks[match[i]];
         ++totals_.matched;
 
@@ -91,6 +104,7 @@ void Evaluator::add(const std::vector<Truth>& truths, const std::vector<Track>& 
         if (!track_used[j] && in_region(tracks[j].x(0, 0), tracks[j].x(1, 0))) ++totals_.false_tracks;
     ++totals_.steps;
     totals_.seconds += dt;
+    now_ += dt;
 }
 
 }  // namespace fusion

@@ -221,6 +221,29 @@ TEST(duplicate_tracks_are_pruned) {
     CHECK(tracker.tracks().size() == 1);
 }
 
+TEST(camera_hits_alone_do_not_confirm_a_radar_clutter_track) {
+    // One radar return with no car behind it, then camera detections of a real
+    // car at about the same place while the radar sees nothing there. Only the
+    // radar started the track, so only radar hits may confirm it.
+    const SensorSpec radar = radar_spec(), camera = camera_spec();
+    auto run = [&](bool by_source) {
+        TrackerConfig cfg;
+        cfg.confirm_by_source = by_source;
+        Tracker tracker(cfg);
+        tracker.process({{SensorKind::Radar, 0.0, 60.0, 0.0, 0.0, -1}}, radar, 0.0);
+        const double radar_t[] = {0.05, 0.10, 0.15, 0.20};
+        const double camera_t[] = {1.0 / 15, 2.0 / 15, 3.0 / 15};
+        tracker.process({{SensorKind::Camera, camera_t[0], 61.0, 0.001, 0.0, 1}}, camera, camera_t[0]);
+        tracker.process({}, radar, radar_t[1]);
+        tracker.process({{SensorKind::Camera, camera_t[1], 59.5, 0.0, 0.0, 1}}, camera, camera_t[1]);
+        tracker.process({}, radar, radar_t[2]);
+        tracker.process({{SensorKind::Camera, camera_t[2], 60.5, -0.001, 0.0, 1}}, camera, camera_t[2]);
+        return tracker.confirmed_at(0.2).size();
+    };
+    CHECK(run(false) == 1);  // the old behaviour confirms it
+    CHECK(run(true) == 0);
+}
+
 TEST(runs_are_reproducible) {
     RunOptions a;
     a.mode = Mode::Fused;

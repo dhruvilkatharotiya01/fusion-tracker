@@ -19,6 +19,10 @@ struct TrackerConfig {
     // same. Without this, a track started by radar clutter next to a real car
     // can live on camera detections, which carry no velocity information.
     bool prune_duplicates = true;
+    // Count hits and misses for confirmation only from the sensor that started
+    // the track. Otherwise a camera detection of a real car, whose range is
+    // uncertain, can confirm a track that radar clutter started nearby.
+    bool confirm_by_source = true;
 };
 
 struct Track {
@@ -29,6 +33,7 @@ struct Track {
     double last_update;
     bool confirmed = false;
     std::vector<bool> history;  // hit or miss for recent scans that covered the track
+    SensorKind source = SensorKind::Radar;  // sensor whose detection started the track
 };
 
 // Gates: 99.5% points of the chi-square distribution.
