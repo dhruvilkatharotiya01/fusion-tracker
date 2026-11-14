@@ -1,0 +1,5 @@
+build/
+out/
+__pycache__/
+docs/INTERVIEW.md
+.DS_Store
