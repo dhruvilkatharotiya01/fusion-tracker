@@ -38,7 +38,8 @@ void Tracker::record(Track& track, bool hit) const {
 
 bool Tracker::expired(const Track& track, double t) const {
     if (std::sqrt(track.P(0, 0) + track.P(1, 1)) > cfg_.max_position_sigma) return true;
-    if (t - track.last_update > cfg_.coast_time) return true;
+    const double coast = track.occluded ? cfg_.occluded_coast_time : cfg_.coast_time;
+    if (t - track.last_update > coast) return true;
     // A tentative track that had its chances and was not confirmed is dropped.
     return !track.confirmed && static_cast<int>(track.history.size()) >= cfg_.confirm_window;
 }
@@ -55,6 +56,12 @@ void Tracker::process(const std::vector<Detection>& scan, const SensorSpec& sens
     const double miss = sensor.kind == SensorKind::Radar ? kGate3 : kGate2;
     const std::vector<int> match = gnn_assign(cost, miss);
 
+    // Decide occlusion before any update, so the order of tracks does not matter.
+    std::vector<bool> hidden(tracks_.size(), false);
+    if (cfg_.occlusion_coasting)
+        for (std::size_t i = 0; i < tracks_.size(); ++i)
+            if (match[i] < 0) hidden[i] = hidden_by_others(i);
+
     std::vector<bool> used(scan.size(), false);
     for (std::size_t i = 0; i < tracks_.size(); ++i) {
         Track& tr = tracks_[i];
@@ -63,9 +70,14 @@ void Tracker::process(const std::vector<Detection>& scan, const SensorSpec& sens
             apply(tr, scan[match[i]], sensor);
             used[match[i]] = true;
             tr.last_update = t;
+            tr.occluded = false;
             if (counts) record(tr, true);
-        } else if (counts && in_view(sensor, tr.x(0, 0), tr.x(1, 0))) {
-            record(tr, false);  // only scans that could have seen the track count as misses
+        } else if (hidden[i]) {
+            tr.occluded = true;  // a miss behind another car says nothing about the track
+        } else {
+            tr.occluded = false;
+            // Only scans that could have seen the track count as misses.
+            if (counts && in_view(sensor, tr.x(0, 0), tr.x(1, 0))) record(tr, false);
         }
     }
 
@@ -105,6 +117,16 @@ void Tracker::prune_duplicates() {
     for (std::size_t i = 0; i < tracks_.size(); ++i)
         if (!drop[i]) tracks_[k++] = tracks_[i];
     tracks_.resize(k);
+}
+
+bool Tracker::hidden_by_others(std::size_t i) const {
+    const Track& me = tracks_[i];
+    if (!me.confirmed) return false;  // tentative tracks must earn their hits
+    std::vector<Truth> blockers;
+    for (std::size_t j = 0; j < tracks_.size(); ++j)
+        if (j != i && tracks_[j].confirmed)
+            blockers.push_back({tracks_[j].id, tracks_[j].x(0, 0), tracks_[j].x(1, 0), 0, 0});
+    return visible_fraction(me.x(0, 0), me.x(1, 0), blockers) < kOccludedBelow;
 }
 
 std::vector<Track> Tracker::confirmed_at(double t) const {

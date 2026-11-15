@@ -49,11 +49,11 @@ Totals run_once(const RunOptions& opt) {
         const std::vector<Truth> truths = traffic.truths();
 
         if (radar_now) {
-            const auto scan = sense(radar, truths, t, radar_rng);
+            const auto scan = sense(radar, truths, t, radar_rng, opt.occlusion);
             if (opt.mode != Mode::Camera) tracker.process(scan, radar, t);
         }
         if (camera_now) {
-            const auto scan = sense(camera, truths, t, camera_rng);
+            const auto scan = sense(camera, truths, t, camera_rng, opt.occlusion);
             if (opt.mode != Mode::Radar) tracker.process(scan, camera, t);
         }
         if (score_now) {

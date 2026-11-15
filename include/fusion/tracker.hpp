@@ -23,6 +23,10 @@ struct TrackerConfig {
     // the track. Otherwise a camera detection of a real car, whose range is
     // uncertain, can confirm a track that radar clutter started nearby.
     bool confirm_by_source = true;
+    // When a missed track is predicted to be hidden behind a nearer confirmed
+    // track, do not count the miss and keep it for up to occluded_coast_time.
+    bool occlusion_coasting = false;
+    double occluded_coast_time = 3.0;  // s
 };
 
 struct Track {
@@ -34,6 +38,7 @@ struct Track {
     bool confirmed = false;
     std::vector<bool> history;  // hit or miss for recent scans that covered the track
     SensorKind source = SensorKind::Radar;  // sensor whose detection started the track
+    bool occluded = false;  // predicted to be hidden behind a nearer track at the last miss
 };
 
 // Gates: 99.5% points of the chi-square distribution.
@@ -52,6 +57,7 @@ private:
     void record(Track& track, bool hit) const;
     bool expired(const Track& track, double t) const;
     void prune_duplicates();
+    bool hidden_by_others(std::size_t i) const;
 
     TrackerConfig cfg_;
     std::vector<Track> tracks_;

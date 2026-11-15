@@ -29,6 +29,8 @@ struct Totals {
     double seconds = 0;
     double delay_sum = 0;  // time from entering the region to first being tracked
     long delay_n = 0;
+    double sq_lat_hidden = 0;  // matched cars that are less than half visible
+    long n_hidden = 0, truths_hidden = 0;
     void add(const Totals& o);
 };
 
@@ -37,6 +39,9 @@ struct Summary {
     double lane_accuracy, coverage, false_tracks, id_switches_per_min;
     double time_to_track;  // mean seconds a car is in the region before it has a track
     std::array<double, 3> rmse_lat_by_range;
+    double rmse_lat_visible, rmse_lat_hidden;
+    double hidden_share;  // share of scored car-steps where the car is mostly hidden
+    double coverage_hidden;
 };
 
 Summary summarize(const Totals& t);

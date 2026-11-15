@@ -28,6 +28,9 @@ void Totals::add(const Totals& o) {
     seconds += o.seconds;
     delay_sum += o.delay_sum;
     delay_n += o.delay_n;
+    sq_lat_hidden += o.sq_lat_hidden;
+    n_hidden += o.n_hidden;
+    truths_hidden += o.truths_hidden;
     for (std::size_t b = 0; b < 3; ++b) {
         sq_lat_bin[b] += o.sq_lat_bin[b];
         n_bin[b] += o.n_bin[b];
@@ -46,6 +49,12 @@ Summary summarize(const Totals& t) {
     s.false_tracks = t.steps ? static_cast<double>(t.false_tracks) / t.steps : 0.0;
     s.id_switches_per_min = t.seconds > 0 ? t.id_switches / (t.seconds / 60.0) : 0.0;
     s.time_to_track = t.delay_n ? t.delay_sum / t.delay_n : 0.0;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const long n_vis = t.matched - t.n_hidden;
+    s.rmse_lat_visible = n_vis ? std::sqrt((t.sq_lat - t.sq_lat_hidden) / n_vis) : nan;
+    s.rmse_lat_hidden = t.n_hidden ? std::sqrt(t.sq_lat_hidden / t.n_hidden) : nan;
+    s.hidden_share = t.truths ? static_cast<double>(t.truths_hidden) / t.truths : 0.0;
+    s.coverage_hidden = t.truths_hidden ? static_cast<double>(t.n_hidden) / t.truths_hidden : nan;
     for (std::size_t b = 0; b < 3; ++b)
         s.rmse_lat_by_range[b] = t.n_bin[b] ? std::sqrt(t.sq_lat_bin[b] / t.n_bin[b])
                                             : std::numeric_limits<double>::quiet_NaN();
@@ -70,6 +79,8 @@ void Evaluator::add(const std::vector<Truth>& truths, const std::vector<Track>& 
         const Truth& tr = truths[i];
         if (!in_region(tr.x, tr.y)) continue;
         ++totals_.truths;
+        const bool hidden = visible_fraction(tr.x, tr.y, truths) < kOccludedBelow;
+        if (hidden) ++totals_.truths_hidden;
         if (!seen_[tr.id] && !waiting_.count(tr.id)) waiting_[tr.id] = now_;
         if (match[i] < 0) continue;
         if (auto w = waiting_.find(tr.id); w != waiting_.end()) {
@@ -87,6 +98,10 @@ void Evaluator::add(const std::vector<Truth>& truths, const std::vector<Track>& 
         const State e = tk.x - vec<4>({tr.x, tr.y, tr.vx, tr.vy});
         totals_.sq_lon += e(0, 0) * e(0, 0);
         totals_.sq_lat += e(1, 0) * e(1, 0);
+        if (hidden) {
+            totals_.sq_lat_hidden += e(1, 0) * e(1, 0);
+            ++totals_.n_hidden;
+        }
         totals_.sq_vel += e(2, 0) * e(2, 0) + e(3, 0) * e(3, 0);
         totals_.nees += (e.t() * inverse(tk.P) * e)(0, 0);
         if (lane_of(tk.x(1, 0)) == lane_of(tr.y)) ++totals_.lane_correct;

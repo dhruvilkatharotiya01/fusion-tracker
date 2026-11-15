@@ -11,7 +11,6 @@ double uniform(std::mt19937_64& rng, double lo, double hi) {
     return std::uniform_real_distribution<double>(lo, hi)(rng);
 }
 
-constexpr double kCarLength = 4.5;
 
 // A car occupies its lane, and also the lane it is moving into.
 bool occupies(int lane, int target_lane, int which) { return lane == which || target_lane == which; }

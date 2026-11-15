@@ -169,6 +169,52 @@ TEST(sensor_only_reports_cars_in_its_field_of_view) {
     CHECK(dets.size() == 1 && dets[0].truth_id == 1);
 }
 
+TEST(visible_fraction_follows_the_geometry) {
+    const std::vector<Truth> lead = {{1, 20, 0, 0, 0}};
+    CHECK_NEAR(visible_fraction(60, 0, lead), 0.0, 1e-12);   // straight behind: hidden
+    // Next lane: the lead covers +-2.7 m at 60 m, so only the inner edge is hidden.
+    CHECK(visible_fraction(60, 3.5, lead) > 0.8);
+    CHECK_NEAR(visible_fraction(20, 0, lead), 1.0, 1e-12);   // a car does not hide itself
+    CHECK_NEAR(visible_fraction(10, 0, lead), 1.0, 1e-12);   // nearer than the lead
+    const double half = visible_fraction(60, 0.9 * 3, lead);  // half-covered by the lead's edge
+    CHECK(half > 0.3 && half < 0.7);
+}
+
+TEST(camera_cannot_see_a_car_hidden_behind_another) {
+    SensorSpec cam = camera_spec();
+    cam.clutter_mean = 0;
+    cam.p_detect = 1;
+    std::mt19937_64 rng(8);
+    const std::vector<Truth> cars = {{1, 20, 0, 0, 0}, {2, 60, 0, 0, 0}};
+    const auto with = sense(cam, cars, 0, rng, true);
+    CHECK(with.size() == 1 && with[0].truth_id == 1);
+    CHECK(sense(cam, cars, 0, rng, false).size() == 2);
+}
+
+TEST(occlusion_coasting_keeps_a_hidden_track_alive) {
+    // Two cars straight ahead in the same lane are both seen for 1 s, then only
+    // the near one for 2 s. Plain coasting deletes the far track after 1 s
+    // without updates; occlusion coasting keeps it, since a miss behind a nearer
+    // car says nothing about whether the far car is still there.
+    const SensorSpec radar = radar_spec();
+    auto far_tracks_at_3s = [&](bool coasting) {
+        TrackerConfig cfg;
+        cfg.occlusion_coasting = coasting;
+        Tracker tracker(cfg);
+        for (int k = 1; k <= 60; ++k) {
+            const double t = k * 0.05;
+            std::vector<Detection> scan = {{SensorKind::Radar, t, 25.0, 0.0, 0.0, 1}};
+            if (t <= 1.0) scan.push_back({SensorKind::Radar, t, 60.0, 0.0, 0.0, 2});
+            tracker.process(scan, radar, t);
+        }
+        int n = 0;
+        for (const Track& tr : tracker.confirmed_at(3.0)) n += tr.x(0, 0) > 50;
+        return n;
+    };
+    CHECK(far_tracks_at_3s(false) == 0);
+    CHECK(far_tracks_at_3s(true) == 1);
+}
+
 TEST(traffic_cars_keep_their_distance_where_sensors_look) {
     // Rarely, a car entering 50 m behind the ego finds no free slot and overlaps
     // another car. That is outside every sensor's view, so only 0-160 m ahead is checked.

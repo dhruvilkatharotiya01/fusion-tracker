@@ -16,6 +16,7 @@ struct RunOptions {
     std::uint64_t seed = 1;
     double duration = 60.0;  // s
     double warmup = 5.0;     // s before scoring starts
+    bool occlusion = true;   // nearer cars hide farther ones from both sensors
     TrackerConfig tracker;
     std::FILE* trace = nullptr;  // optional CSV of truth and tracks at every scoring step
 };
